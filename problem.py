@@ -226,6 +226,77 @@ class WeightedClassificationError(rw.score_types.BaseScoreType):
         return self.compute(y_true, y_pred)
 
 
+class WeightedCrossEntropy(rw.score_types.BaseScoreType):
+    """
+    Cross entropy with expert-designed weight. For a label $y=k$ and a
+     probabilistic estimate $\hat{y}_l$, the formula is
+    $\sum_l W_{k,l} \log(1 - \hat{y}_l) $
+
+    It is called le 'log-bilinear loss' here :
+    https://arxiv.org/pdf/1704.06062.pdf
+
+    Some errors (e.g. predicting class "H" when it is class "A") might count
+    for more in the final scores. The missclassification weights were
+    designed by an expert.
+    """
+
+    is_lower_the_better = True
+    minimum = -np.inf
+    maximum = 0  # 1 if normalisation by max(W)
+
+    def __init__(self, name="WeightedCrossEntropy", precision=2, time_idx=0):
+        self.name = name + f"[{time_idx + 1}]"
+        self.precision = precision
+        self.time_idx = time_idx
+
+    def compute(self, y_true, y_pred):
+
+        n_classes = len(_prediction_label_names)
+
+        # missclassif weights matrix
+        W = np.array(
+            [
+                [0, 1, 6, 10, 10, 10, 10, 10],
+                [1, 0, 3, 10, 10, 10, 10, 10],
+                [6, 3, 0, 2, 9, 10, 10, 10],
+                [10, 10, 2, 0, 9, 9, 10, 10],
+                [10, 10, 9, 9, 0, 8, 8, 8],
+                [10, 10, 10, 9, 8, 0, 9, 8],
+                [10, 10, 10, 10, 8, 9, 0, 9],
+                [10, 10, 10, 10, 8, 8, 9, 0],
+            ]
+        )
+        # no need to normalize here
+        # W = W / np.max(W)
+
+        # Convert proba to hard-labels
+        y_pred = np.argmax(y_pred, axis=1)
+
+        n = len(y_true)
+        conf_mat = confusion_matrix(
+            y_true, y_pred, labels=np.arange(n_classes)
+        )
+        loss = np.multiply(conf_mat, W).sum() / n
+        return loss
+
+    def __call__(self, y_true, y_pred):
+        n_classes = len(_prediction_label_names)
+
+        # select the prediction corresponding to time_idx
+        y_pred = y_pred[
+            :,
+            self.time_idx
+            * n_classes : (self.time_idx + 1)  # noqa:E203
+            * n_classes,  # noqa:E203
+        ]
+
+        # Cut through y_true dummy dimensions (only here to make ramp-workflow
+        # run smoothly)
+        y_true = y_true[:, :n_classes]
+
+        return self.compute(y_true, y_pred)
+
+
 score_types = [
     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
     for time_idx in range(len(pred_times))
