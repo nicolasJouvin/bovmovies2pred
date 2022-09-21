@@ -244,14 +244,33 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
     minimum = -np.inf
     maximum = 0  # 1 if normalisation by max(W)
 
-    def __init__(self, name="WeightedCrossEntropy", precision=2, time_idx=0):
+    def __init__(
+        self, name="WeightedCrossEntropy", precision=2, time_idx=0, eps=1e-15
+    ):
+        """init
+
+        Args:
+            name (str, optional):  Defaults to "WeightedCrossEntropy".
+            precision (int, optional):  Defaults to 2.
+            time_idx (int, optional): Defaults to 0.
+            eps (float, optional): Log loss is undefined for p=0 or p=1, so
+            probabilities are clipped to max(eps, min(1 - eps, p))
+        """
         self.name = name + f"[{time_idx + 1}]"
         self.precision = precision
         self.time_idx = time_idx
+        self.eps = eps
 
     def compute(self, y_true, y_pred):
+        """Compute the WeightedCrossEntropy
 
-        n_classes = len(_prediction_label_names)
+        Args:
+            y_true (np.array): shape (n,8) the true class 1-hot encoded
+            y_pred (np.array): shape (n, 8) the prediction of the model
+
+        Returns:
+            float: the loss
+        """
 
         # missclassif weights matrix
         W = np.array(
@@ -269,14 +288,20 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
         # no need to normalize here
         # W = W / np.max(W)
 
-        # Convert proba to hard-labels
-        y_pred = np.argmax(y_pred, axis=1)
+        n = y_pred.shape[0]
 
-        n = len(y_true)
-        conf_mat = confusion_matrix(
-            y_true, y_pred, labels=np.arange(n_classes)
-        )
-        loss = np.multiply(conf_mat, W).sum() / n
+        # Clipping
+        y_pred = np.clip(y_pred, self.eps, 1 - self.eps)
+
+        # Below is a for loop computing the loss (inefficient)
+        # loss = 0
+        # for i in range(n):
+        #     kstar = np.argmax(y_true[i, :])
+        #     loss += (W[kstar, :] * np.log(1 - y_pred[i, :])).sum() / n
+
+        # alternative way of computing it without for loop
+        # using loss = Tr[yWy2'] Tr[W y2'y] = sum(W * y2'y)
+        loss = (W * y_true.T.dot(np.log(1 - y_pred))).sum() / n
         return loss
 
     def __call__(self, y_true, y_pred):
@@ -297,8 +322,12 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
         return self.compute(y_true, y_pred)
 
 
+# score_types = [
+#     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
+#     for time_idx in range(len(pred_times))
+# ]
 score_types = [
-    WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
+    WeightedCrossEntropy(name="WeightedCrossEntropy", time_idx=time_idx)
     for time_idx in range(len(pred_times))
 ]
 
