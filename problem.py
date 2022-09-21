@@ -2,7 +2,6 @@
 
 import os
 import copy
-from matplotlib import cm
 import numpy as np
 import pandas as pd
 from sklearn.metrics import confusion_matrix
@@ -227,8 +226,108 @@ class WeightedClassificationError(rw.score_types.BaseScoreType):
         return self.compute(y_true, y_pred)
 
 
+class WeightedCrossEntropy(rw.score_types.BaseScoreType):
+    """
+    Cross entropy with expert-designed weight. For a label $y=k$ and a
+     probabilistic estimate $\hat{y}_l$, the formula is
+    $\sum_l W_{k,l} \log(1 - \hat{y}_l) $
+
+    It is called le 'log-bilinear loss' here :
+    https://arxiv.org/pdf/1704.06062.pdf
+
+    Some errors (e.g. predicting class "H" when it is class "A") might count
+    for more in the final scores. The missclassification weights were
+    designed by an expert.
+    """
+
+    is_lower_the_better = True
+    minimum = -np.inf
+    maximum = 0  # 1 if normalisation by max(W)
+
+    def __init__(
+        self, name="WeightedCrossEntropy", precision=2, time_idx=0, eps=1e-15
+    ):
+        """init
+
+        Args:
+            name (str, optional):  Defaults to "WeightedCrossEntropy".
+            precision (int, optional):  Defaults to 2.
+            time_idx (int, optional): Defaults to 0.
+            eps (float, optional): Log loss is undefined for p=0 or p=1, so
+            probabilities are clipped to max(eps, min(1 - eps, p))
+        """
+        self.name = name + f"[{time_idx + 1}]"
+        self.precision = precision
+        self.time_idx = time_idx
+        self.eps = eps
+
+    def compute(self, y_true, y_pred):
+        """Compute the WeightedCrossEntropy
+
+        Args:
+            y_true (np.array): shape (n,8) the true class 1-hot encoded
+            y_pred (np.array): shape (n, 8) the prediction of the model
+
+        Returns:
+            float: the loss
+        """
+
+        # missclassif weights matrix
+        W = np.array(
+            [
+                [0, 1, 6, 10, 10, 10, 10, 10],
+                [1, 0, 3, 10, 10, 10, 10, 10],
+                [6, 3, 0, 2, 9, 10, 10, 10],
+                [10, 10, 2, 0, 9, 9, 10, 10],
+                [10, 10, 9, 9, 0, 8, 8, 8],
+                [10, 10, 10, 9, 8, 0, 9, 8],
+                [10, 10, 10, 10, 8, 9, 0, 9],
+                [10, 10, 10, 10, 8, 8, 9, 0],
+            ]
+        )
+        # no need to normalize here
+        # W = W / np.max(W)
+
+        n = y_pred.shape[0]
+
+        # Clipping
+        y_pred = np.clip(y_pred, self.eps, 1 - self.eps)
+
+        # Below is a for loop computing the loss (inefficient)
+        # loss = 0
+        # for i in range(n):
+        #     kstar = np.argmax(y_true[i, :])
+        #     loss += (W[kstar, :] * np.log(1 - y_pred[i, :])).sum() / n
+
+        # alternative way of computing it without for loop
+        # using loss = Tr[yWy2'] Tr[W y2'y] = sum(W * y2'y)
+        loss = (W * y_true.T.dot(np.log(1 - y_pred))).sum() / n
+        return loss
+
+    def __call__(self, y_true, y_pred):
+        n_classes = len(_prediction_label_names)
+
+        # select the prediction corresponding to time_idx
+        y_pred = y_pred[
+            :,
+            self.time_idx
+            * n_classes : (self.time_idx + 1)  # noqa:E203
+            * n_classes,  # noqa:E203
+        ]
+
+        # Cut through y_true dummy dimensions (only here to make ramp-workflow
+        # run smoothly)
+        y_true = y_true[:, :n_classes]
+
+        return self.compute(y_true, y_pred)
+
+
+# score_types = [
+#     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
+#     for time_idx in range(len(pred_times))
+# ]
 score_types = [
-    WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
+    WeightedCrossEntropy(name="WeightedCrossEntropy", time_idx=time_idx)
     for time_idx in range(len(pred_times))
 ]
 
