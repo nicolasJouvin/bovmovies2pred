@@ -200,6 +200,7 @@ class WeightedClassificationError(rw.score_types.BaseScoreType):
 
         # Convert proba to hard-labels
         y_pred = np.argmax(y_pred, axis=1)
+        y_true = np.argmax(y_true, axis=1)
 
         n = len(y_true)
         conf_mat = confusion_matrix(
@@ -219,9 +220,9 @@ class WeightedClassificationError(rw.score_types.BaseScoreType):
             * n_classes,  # noqa:E203
         ]
 
-        # Convert proba to hard-labels
+        # Cut through y_true dummy dimensions (only here to make ramp-workflow
+        # run smoothly)
         y_true = y_true[:, :n_classes]
-        y_true = np.argmax(y_true, axis=1)
 
         return self.compute(y_true, y_pred)
 
@@ -322,14 +323,14 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
         return self.compute(y_true, y_pred)
 
 
-# score_types = [
-#     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
-#     for time_idx in range(len(pred_times))
-# ]
 score_types = [
-    WeightedCrossEntropy(name="WeightedCrossEntropy", time_idx=time_idx)
+    WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
     for time_idx in range(len(pred_times))
 ]
+# score_types = [
+#     WeightedCrossEntropy(name="WeightedCrossEntropy", time_idx=time_idx)
+#     for time_idx in range(len(pred_times))
+# ]
 
 # --------------------------------------------------
 # CV scheme
