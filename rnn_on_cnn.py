@@ -1,3 +1,5 @@
+# Forget flake error for now (dev)
+# flake8: noqa
 from problem import (
     get_train_data,
     get_test_data,
@@ -21,24 +23,28 @@ class VideoClassifier:
         batch_size=16,
         epochs=2,
         begin_time=24.0,
-        unique_labels = None,
-        prediction_times  = None
+        unique_labels=None,
+        prediction_times=None,
     ):
 
         self.augment = augment
         self.fe_name = feature_extractor_name
-        self.build_feature_extractor() # Creates self.feature_extractor and self.feature_dimension
+        self.build_feature_extractor()  # Creates self.feature_extractor and self.feature_dimension
         self.batch_size = batch_size
         self.epochs = epochs
         self.begin_time = begin_time
         if unique_labels is None:
             unique_labels = ["A", "B", "C", "D", "E", "F", "G", "H"]
-        self.label_processor = keras.layers.StringLookup(num_oov_indices=0, vocabulary= unique_labels)
+        self.label_processor = keras.layers.StringLookup(
+            num_oov_indices=0, vocabulary=unique_labels
+        )
         if prediction_times is None:
             prediction_times = [27, 30]
         self.model_dictionnary = {}
         for pred_time in prediction_times:
-            self.model_dictionnary[pred_time] = self.get_sequence_model(pred_time)
+            self.model_dictionnary[pred_time] = self.get_sequence_model(
+                pred_time
+            )
 
     def build_feature_extractor(self):
         if self.fe_name == "inceptionV3":
@@ -76,7 +82,9 @@ class VideoClassifier:
         rnn_model = keras.Model([frame_features_input], output)
 
         rnn_model.compile(
-            loss="sparse_categorical_crossentropy", optimizer="adam", metrics=["accuracy"]
+            loss="sparse_categorical_crossentropy",
+            optimizer="adam",
+            metrics=["accuracy"],
         )
         return rnn_model
 
@@ -95,9 +103,16 @@ class VideoClassifier:
             vid_arr_rgb = np.array([vid_arr] * 3)
             vid_arr_rgb = np.rollaxis(vid_arr_rgb, 0, vid_arr_rgb.ndim)
 
-            X[i, :, :] = self.feature_extractor.predict(vid_arr_rgb, batch_size=33)
+            X[i, :, :] = self.feature_extractor.predict(
+                vid_arr_rgb, batch_size=33
+            )
         seq_model = self.model_dictionnary[int(pred_time)]
-        seq_model.fit(X, self.label_processor(y).numpy(), validation_split=0.1, epochs= self.epochs)  
+        seq_model.fit(
+            X,
+            self.label_processor(y).numpy(),
+            validation_split=0.1,
+            epochs=self.epochs,
+        )
 
         return None
 
@@ -110,11 +125,13 @@ if __name__ == "__main__":
     pred_time = 30
     videos_train, labels_train = get_train_data()
     n_vid = 10
-    clf = VideoClassifier(unique_labels = np.unique(labels_train[:n_vid]))
-    # The labels of the videos are strings. Neural networks do not understand string values, 
-    # so they must be converted to some numerical form before they are fed to the model. 
+    clf = VideoClassifier(unique_labels=np.unique(labels_train[:n_vid]))
+    # The labels of the videos are strings. Neural networks do not understand string values,
+    # so they must be converted to some numerical form before they are fed to the model.
     # Here we will use the StringLookup layer encode the class labels as integers.
 
     train_preds = clf.fit(
-        videos=videos_train[:n_vid], y=labels_train[:n_vid], pred_time=pred_time
+        videos=videos_train[:n_vid],
+        y=labels_train[:n_vid],
+        pred_time=pred_time,
     )
