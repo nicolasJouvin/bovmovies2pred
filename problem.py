@@ -228,7 +228,7 @@ class WeightedClassificationError(rw.score_types.BaseScoreType):
 
 
 class WeightedCrossEntropy(rw.score_types.BaseScoreType):
-    """
+    r"""
     Cross entropy with expert-designed weight. For a label $y=k$ and a
      probabilistic estimate $\hat{y}_l$, the formula is
     $\sum_l W_{k,l} \log(1 - \hat{y}_l) $
@@ -243,7 +243,7 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
 
     is_lower_the_better = True
     minimum = -np.inf
-    maximum = 0  # 1 if normalisation by max(W)
+    maximum = 0
 
     def __init__(
         self, name="WeightedCrossEntropy", precision=2, time_idx=0, eps=1e-15
@@ -286,8 +286,8 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
                 [10, 10, 10, 10, 8, 8, 9, 0],
             ]
         )
-        # no need to normalize here
-        # W = W / np.max(W)
+        # TODO : no need to normalize here ?
+        W = W / np.max(W)
 
         n = y_pred.shape[0]
 
@@ -323,7 +323,99 @@ class WeightedCrossEntropy(rw.score_types.BaseScoreType):
         return self.compute(y_true, y_pred)
 
 
+class AreaUnderCurveError(rw.score_types.BaseScoreType):
+    """
+    Area Under the Curve (AUC) of the error in function of prediction times.
+    The lower the better. It uses the scikit-implementation and, thus, the
+    trapezoidal rule.
+    """
+
+    is_lower_the_better = True
+    minimum = -np.inf
+    maximum = 0
+
+    def __init__(
+        self,
+        name="AUC",
+        precision=2,
+        score_func_name="classification",
+        prediction_times=None,
+    ):
+
+        self.name = name + f"[{score_func_name}]"
+        self.precision = precision
+        self.score_func_name = score_func_name
+        if prediction_times is None:
+            # set to the complete challenge pred_times
+            prediction_times = pred_times
+        self.pred_times = prediction_times
+
+    def compute(self, y_true, y_pred):
+        """Compute the AUC using the score function according to
+        self.score_func_name
+            * "classification" -> WeightedClassificationError
+            * "entropy" -> WeightedCrossEntropy
+
+        Args:
+            y_true (np.array): shape (n,8) the true class 1-hot encoded
+            y_pred (np.array): shape (n, 8 * len(self.pred_times))
+            the prediction of the model for all the self.pred_times
+
+        Returns:
+            float: the area under curve computed using scikit-learn
+            (trapezoidal method)
+        """
+        from sklearn.metrics import auc
+
+        if self.score_func_name == "classification":
+            score_func = WeightedClassificationError(
+                precision=self.precision, time_idx=-2
+            )
+        elif self.score_func_name == "entropy":
+            score_func = WeightedCrossEntropy(
+                precision=self.precision, time_idx=-2, eps=1e-15
+            )
+        else:
+            raise ValueError(
+                "The available score functions name are"
+                "'classification' and 'entropy', you gave",
+                self.score_func_name,
+            )
+        n_classes = len(_prediction_label_names)
+        n_times = len(self.pred_times)
+        self.errors = np.zeros((n_times,))
+        for time_idx in range(n_times):
+            # select the prediction corresponding to time_idx
+            preds = y_pred[
+                :,
+                time_idx
+                * n_classes : (time_idx + 1)  # noqa:E203
+                * n_classes,  # noqa:E203
+            ]
+
+            # compute the corresponding error
+            self.errors[time_idx] = score_func.compute(
+                y_true=y_true, y_pred=preds
+            )
+
+        # compute area under curve using scikit
+        # times (x-axis) is normalized between [0,1]
+        loss = auc(self.pred_times / np.max(self.pred_times), self.errors)
+        return loss
+
+    def __call__(self, y_true, y_pred):
+        n_classes = len(_prediction_label_names)
+
+        # Cut through y_true dummy dimensions (only here to make ramp-workflow
+        # run smoothly)
+        y_true = y_true[:, :n_classes]
+
+        return self.compute(y_true, y_pred)
+
+
 score_types = [
+    AreaUnderCurveError(precision=2, score_func_name="classification")
+] + [
     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
     for time_idx in range(len(pred_times))
 ]
