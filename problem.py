@@ -332,7 +332,7 @@ class AreaUnderCurveError(rw.score_types.BaseScoreType):
 
     is_lower_the_better = True
     minimum = -np.inf
-    maximum = 0
+    maximum = +np.inf
 
     def __init__(
         self,
@@ -348,7 +348,7 @@ class AreaUnderCurveError(rw.score_types.BaseScoreType):
         if prediction_times is None:
             # set to the complete challenge pred_times
             prediction_times = pred_times
-        self.pred_times = prediction_times
+        self.pred_times = np.array(prediction_times)
 
     def compute(self, y_true, y_pred):
         """Compute the AUC using the score function according to
@@ -400,7 +400,9 @@ class AreaUnderCurveError(rw.score_types.BaseScoreType):
 
         # compute area under curve using scikit
         # times (x-axis) is normalized between [0,1]
-        loss = auc(self.pred_times / np.max(self.pred_times), self.errors)
+        xticks = self.pred_times - self.pred_times.min()
+        xticks = xticks / xticks.max()
+        loss = auc(xticks, self.errors)
         return loss
 
     def __call__(self, y_true, y_pred):
@@ -414,7 +416,11 @@ class AreaUnderCurveError(rw.score_types.BaseScoreType):
 
 
 score_types = [
-    AreaUnderCurveError(precision=2, score_func_name="classification")
+    AreaUnderCurveError(
+        precision=2,
+        score_func_name="classification",
+        prediction_times=pred_times,
+    )
 ] + [
     WeightedClassificationError(name="WeightedClassifErr", time_idx=time_idx)
     for time_idx in range(len(pred_times))
