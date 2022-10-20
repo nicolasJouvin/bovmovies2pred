@@ -1,5 +1,6 @@
 # Forget flake error for now (dev)
 # flake8: noqa
+from tensorflow.python.ops.script_ops import py_func
 from problem import (
     get_train_data,
     get_test_data,
@@ -13,6 +14,25 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import os
+
+physical_devices = tf.config.experimental.list_physical_devices("GPU")
+config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+# gpus = tf.config.list_physical_devices("GPU")
+# if gpus:
+#     # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
+#     try:
+#         tf.config.set_logical_device_configuration(
+#             gpus[0],
+#             [tf.config.LogicalDeviceConfiguration(memory_limit=1024)],
+#         )
+#         logical_gpus = tf.config.list_logical_devices("GPU")
+#         print(
+#             len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs"
+#         )
+#     except RuntimeError as e:
+#         # Virtual devices must be set before GPUs have been initialized
+#         print(e)
 
 
 class VideoClassifier:
@@ -39,7 +59,7 @@ class VideoClassifier:
             num_oov_indices=0, vocabulary=unique_labels
         )
         if prediction_times is None:
-            prediction_times = [27, 30]
+            prediction_times = [27, 54, 94]
         self.model_dictionnary = {}
         for pred_time in prediction_times:
             self.model_dictionnary[pred_time] = self.get_sequence_model(
@@ -88,9 +108,9 @@ class VideoClassifier:
         )
         return rnn_model
 
-    def fit(self, videos: list, y, pred_time: float):
-        # transform each videos into a feature set of size (n_frames, self.feature_dimension)
-
+    def feature_transform(
+        self, videos: list, physical_device="/CPU:0", batch_size=32
+    ):
         n_vids = len(videos)
         n_frames = int((pred_time - self.begin_time) * 4 + 1)
         X = np.zeros((n_vids, n_frames, self.feature_dimension))
@@ -103,9 +123,30 @@ class VideoClassifier:
             vid_arr_rgb = np.array([vid_arr] * 3)
             vid_arr_rgb = np.rollaxis(vid_arr_rgb, 0, vid_arr_rgb.ndim)
 
-            X[i, :, :] = self.feature_extractor.predict(
-                vid_arr_rgb, batch_size=33
-            )
+            # Use the CPU/GPU as you prefer
+            # WARNING : if pred_time is large, so is n_frames
+            # and the GPU could run out of memory
+            with tf.device(physical_device):
+                X[i, :, :] = self.feature_extractor.predict(
+                    vid_arr_rgb, batch_size=batch_size
+                )
+
+        return X
+
+    def fit(
+        self,
+        videos: list,
+        y,
+        pred_time: float,
+        physical_device="/CPU:0",
+        batch_size=32,
+    ):
+
+        print("--- Fitting...")
+        # transform each videos into a feature set of size (n_frames, self.feature_dimension)
+
+        X = self.feature_transform(videos, physical_device, batch_size)
+
         seq_model = self.model_dictionnary[int(pred_time)]
         seq_model.fit(
             X,
@@ -113,25 +154,66 @@ class VideoClassifier:
             validation_split=0.1,
             epochs=self.epochs,
         )
+        print("Done !")
 
         return None
 
-    def predict(self, videos: list, pred_time: float):
-
-        return None
+    def predict(
+        self,
+        videos: list,
+        pred_time: float,
+        physical_device="/CPU:0",
+        batch_size=32,
+    ):
+        X = self.feature_transform(videos, physical_device, batch_size)
+        y_pred = self.model_dictionnary[int(pred_time)].predict(X)
+        return y_pred
 
 
 if __name__ == "__main__":
-    pred_time = 30
+    from sklearn.preprocessing import OneHotEncoder
+
+    # we need to convert labels (str) to 1-hot encoding (n, 8)
+
+    pred_time = 54
     videos_train, labels_train = get_train_data()
-    n_vid = 10
-    clf = VideoClassifier(unique_labels=np.unique(labels_train[:n_vid]))
+    n_vid = 40
+    clf = VideoClassifier(
+        unique_labels=np.unique(labels_train[:n_vid]), epochs=10
+    )
     # The labels of the videos are strings. Neural networks do not understand string values,
     # so they must be converted to some numerical form before they are fed to the model.
     # Here we will use the StringLookup layer encode the class labels as integers.
 
-    train_preds = clf.fit(
+    clf.fit(
         videos=videos_train[:n_vid],
         y=labels_train[:n_vid],
         pred_time=pred_time,
+        physical_device="/CPU:0",  # using CPU here
     )
+
+    # Prediction on train & test
+    y_pred_train = clf.predict(
+        videos_train[:n_vid], pred_time=pred_time, physical_device="/CPU:0"
+    )
+    # y_pred_test = clf.predict(videos_test[:n_vid], physical_device="/CPU:0")
+    print(y_pred_train)
+    score = WeightedClassificationError(time_idx=0)
+
+    labels_train = labels_train.reshape(-1, 1)
+    enc = OneHotEncoder()
+    enc.fit(labels_train)
+    y_true = enc.transform(labels_train)
+
+    print(
+        "Error on train = ",
+        score(y_true=y_true[:n_vid, :], y_pred=y_pred_train),
+    )
+
+
+    import tensorflow as tf
+
+    sys_details = tf.sysconfig.get_build_info()
+    cuda_version = sys_details["cuda_version"]
+    print(cuda_version)
+  
