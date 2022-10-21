@@ -11,7 +11,7 @@ seaborn
 jupyter
 
 scikit-learn
-tensorflow-gpu
+tensorflow
 
 # dev
 flake8

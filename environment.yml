@@ -15,9 +15,9 @@ dependencies:
   - pyyaml
   - torchvision
   - pytorch
-  - cudatoolkit=10.2
-  - tensorflow-gpu
+  - tensorflow
   - cloudpickle
+  - cudnn
 
   # dev
   - flake8
