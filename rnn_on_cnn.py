@@ -13,7 +13,7 @@ from tensorflow import keras
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
-import os
+import time
 
 physical_devices = tf.config.experimental.list_physical_devices("GPU")
 config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -114,7 +114,7 @@ class VideoClassifier:
         n_vids = len(videos)
         n_frames = int((pred_time - self.begin_time) * 4 + 1)
         X = np.zeros((n_vids, n_frames, self.feature_dimension))
-
+        t0 = time.time()
         for i, vid in enumerate(videos):
             vid_arr = vid.read_sequence(
                 begin_time=self.begin_time, end_time=pred_time
@@ -130,7 +130,14 @@ class VideoClassifier:
                 X[i, :, :] = self.feature_extractor.predict(
                     vid_arr_rgb, batch_size=batch_size
                 )
-
+        t1 = time.time()
+        print(
+            "It took",
+            t1 - t0,
+            "to transform all videos. A mean of",
+            (t1 - t0) / n_vids,
+            "per video.",
+        )
         return X
 
     def fit(
@@ -175,9 +182,13 @@ if __name__ == "__main__":
 
     # we need to convert labels (str) to 1-hot encoding (n, 8)
 
-    pred_time = 54
+    use_gpu = True
+    pred_time = 27
     videos_train, labels_train = get_train_data()
     n_vid = 40
+    batch_size = 10
+    my_physical_device = "/GPU:0" if use_gpu else "/CPU:0"
+    print("Use", my_physical_device)
     clf = VideoClassifier(
         unique_labels=np.unique(labels_train[:n_vid]), epochs=10
     )
@@ -189,13 +200,19 @@ if __name__ == "__main__":
         videos=videos_train[:n_vid],
         y=labels_train[:n_vid],
         pred_time=pred_time,
-        physical_device="/CPU:0",  # using CPU here
+        physical_device=my_physical_device,
+        batch_size=batch_size,
     )
 
     # Prediction on train & test
+    print("predicting...")
     y_pred_train = clf.predict(
-        videos_train[:n_vid], pred_time=pred_time, physical_device="/CPU:0"
+        videos_train[:n_vid],
+        pred_time=pred_time,
+        physical_device=my_physical_device,
+        batch_size=batch_size,
     )
+    print("Done predict!")
     # y_pred_test = clf.predict(videos_test[:n_vid], physical_device="/CPU:0")
     print(y_pred_train)
     score = WeightedClassificationError(time_idx=0)
@@ -210,10 +227,4 @@ if __name__ == "__main__":
         score(y_true=y_true[:n_vid, :], y_pred=y_pred_train),
     )
 
-
     import tensorflow as tf
-
-    sys_details = tf.sysconfig.get_build_info()
-    cuda_version = sys_details["cuda_version"]
-    print(cuda_version)
-  
