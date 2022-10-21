@@ -183,7 +183,7 @@ if __name__ == "__main__":
     # we need to convert labels (str) to 1-hot encoding (n, 8)
 
     use_gpu = True
-    pred_time = 27
+    pred_time = 54
     videos_train, labels_train = get_train_data()
     n_vid = 40
     batch_size = 10
